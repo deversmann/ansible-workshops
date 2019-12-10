@@ -20,3 +20,9 @@
   when:
     - not teardown
     - check_cert is failed
+
+- name: INSTALL WETTY
+  include_tasks: "wetty.yml"
+  when: 
+    - wetty|bool
+    - not teardown

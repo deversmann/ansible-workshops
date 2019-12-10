@@ -1,0 +1,10 @@
+[Unit]
+Description="WETTY: Terminal over HTTP and HTTPS. https://github.com/krishnasrinivas/wetty"
+After=network.target auditd.service
+
+[Service]
+ExecStart=/usr/local/bin/wetty --sslkey /home/{{ username }}/.ssh/privkey.pem --sslcert /home/{{ username }}/.ssh/cert.pem -p 8443
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

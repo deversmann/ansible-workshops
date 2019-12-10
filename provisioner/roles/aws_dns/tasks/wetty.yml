@@ -1,0 +1,124 @@
+# Install and configure wetty
+
+- name: Install yarn repository
+  become: yes
+  yum_repository:
+    name: yarn
+    description: "Yarn repository"
+    baseurl: 'https://dl.yarnpkg.com/rpm/'
+    gpgcheck: yes
+    gpgkey: 'https://dl.yarnpkg.com/rpm/pubkey.gpg'
+
+- name: Configure node 8
+  raw: curl --silent --location https://rpm.nodesource.com/setup_8.x | sudo bash -
+
+- name: Remove older packages
+  become: yes
+  yum:
+    name:
+    - nodejs
+    - npm
+    state: absent
+
+- name: Install required packages
+  become: yes
+  yum:
+    name:
+    - yarn
+    - git
+    - make
+    - nmap-ncat
+    - gcc-c++
+    state: present
+
+- name: Pull wetty from GitHub
+  git:
+    repo: 'https://github.com/butlerx/wetty.git'
+    dest: /home/{{ username }}/wetty
+
+- name: Install Python 2 (RHEL 8)
+  yum:
+    name: python2
+    state: present
+  when: ansible_distribution == 'RedHat' and ansible_distribution_major_version == '8'
+
+- name: Build wetty (RHEL 7)
+  shell: yarn && yarn build
+  args:
+    chdir: "/home/{{ username }}/wetty"
+    creates: "dist/client"
+  when: ansible_distribution == 'RedHat' and ansible_distribution_major_version == '7'
+
+- name: Build wetty (RHEL 8)
+  shell: export PYTHON=/usr/bin/python2 ; yarn && yarn build
+  args:
+    chdir: "/home/{{ username }}/wetty"
+    creates: "dist/client"
+  when: ansible_distribution == 'RedHat' and ansible_distribution_major_version == '8'
+
+- name: Install wetty
+  become: true
+  command: yarn global add wetty
+  args:
+    chdir: "/home/{{ username }}/wetty"
+
+- name: Create user ssh dir
+  file:
+    state: directory
+    path: /home/{{ username }}/.ssh
+    mode: '700'
+
+- name: Copy cert.pem to Wetty dir
+  become: yes
+  command: cp cert.pem /home/{{ username }}/.ssh/ chdir="/etc/letsencrypt/live/{{username}}.{{ec2_name_prefix|lower}}.{{workshop_dns_zone}}/"  
+  args:
+    creates: /home/{{ username }}/.ssh/cert.pem
+
+- name: Copy privkey.pem to Wetty dir
+  become: yes
+  command: cp privkey.pem /home/{{ username }}/.ssh/ chdir="/etc/letsencrypt/live/{{username}}.{{ec2_name_prefix|lower}}.{{workshop_dns_zone}}/" 
+  args:
+    creates: /home/{{ username }}/.ssh/privkey.pem
+
+- name: Template Systemd Service File for Wetty
+  become: yes
+  template:
+    src:   "wetty.service.j2"
+    dest:  "/etc/systemd/system/wetty.service"
+    group: root 
+    owner: root
+    mode:  0644
+
+- name: Create SELinux dir
+  become: yes
+  file: 
+    group: "{{ username }}"
+    owner: "{{ username }}"
+    mode:  0700
+    path:  "/home/{{ username }}/.selinux"
+    state: directory  
+
+- name: Copy over SELinux modules for Wetty
+  become: yes
+  copy:
+    src:   "{{ item }}"
+    dest:  "/home/{{ username }}/.selinux"
+    group: "{{username}}"
+    owner: "{{username}}"
+    mode:  0700
+  with_items: 
+    - wetty.pp
+    - wetty.te
+  register: result
+
+- name: Update SELinux for Wetty
+  become: yes
+  command: semodule -i wetty.pp chdir=/home/{{ username }}/.selinux
+  when: result.changed
+  
+- name: enable and start wetty service
+  become: yes
+  service:
+    name: wetty
+    enabled: yes
+    state: started
